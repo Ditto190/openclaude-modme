@@ -1,6 +1,7 @@
 import type { CredentialLease, CredentialPool } from '../credentialPool.js'
 import type { OpenAICompatibilityFailure } from '../openaiErrorClassification.js'
 import type { OpenAIShimRuntimeContext } from '../../../integrations/runtimeMetadata.js'
+import { getCommandcodeChatCompletionsModelError } from '../../../integrations/gateways/commandcode.js'
 import {
   redactEncodedSecretSubstringsForDisplay,
   redactSecretSubstringsForDisplay,
@@ -241,12 +242,21 @@ export async function executeOpenAIRequest(
     isGithubCopilot,
     isGithubModels,
   } = context
+  if (runtimeShimContext.routeId === 'commandcode') {
+    const modelError = getCommandcodeChatCompletionsModelError(
+      request.resolvedModel,
+    )
+    if (modelError) {
+      throw APIError.generate(400, undefined, modelError, new Headers())
+    }
+  }
   // Existing routes historically accept process-level custom auth even when
   // their profile UI hides those controls. LLMTR is the new fixed-contract
   // route: enforce its explicit capability without changing that compatibility
   // behavior for unrelated providers or generic custom endpoints.
   const supportsConfiguredAuthHeaders =
-    runtimeShimContext.routeId !== 'llmtr' ||
+    (runtimeShimContext.routeId !== 'llmtr' &&
+      runtimeShimContext.routeId !== 'commandcode') ||
     runtimeShimContext.openaiShimConfig.supportsAuthHeaders === true
   const unsupportedCustomHeaderNames = supportsConfiguredAuthHeaders
     ? null
@@ -318,6 +328,9 @@ export async function executeOpenAIRequest(
       requestProcessEnv.FIREWORKS_API_KEY,
       requestProcessEnv.LONGCAT_API_KEY,
       requestProcessEnv.LLMTR_API_KEY,
+      requestProcessEnv.CMD_API_KEY,
+      requestProcessEnv.COMMANDCODE_API_KEY,
+      requestProcessEnv.COMMAND_CODE_API_KEY,
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
   const routeCredentialIsCopiedProviderKey = Boolean(
